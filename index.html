@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Breathing Exercise</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the Inter font and overall body */
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #a8c0ff 0%, #3f2b96 100%); /* Pleasant gradient background */
+            overflow: hidden; /* Prevent scrollbars */
+        }
+        canvas {
+            background-color: rgba(255, 255, 255, 0.1); /* Slightly transparent white for the canvas */
+            border-radius: 1rem; /* Rounded corners for the canvas */
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2); /* Subtle shadow */
+            display: block;
+            max-width: 90vw; /* Responsive width */
+            height: auto; /* Maintain aspect ratio */
+            margin: 0 auto; /* Center the canvas */
+        }
+        /* Ensure the main container takes full height and width for centering */
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+        /* Style for the canvas container to control its height and positioning */
+        #canvasContainer {
+            position: relative;
+            width: 100%;
+            height: 60vh; /* Set height to 60% of viewport height for responsiveness */
+            max-width: 90vw; /* Keep max width to 90% of viewport width */
+            margin-bottom: 2rem; /* mb-8 equivalent */
+        }
+        /* Style for the touch-to-start overlay */
+        #touchToStartOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6); /* Semi-transparent black overlay */
+            border-radius: 1rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 2.5rem;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+            cursor: pointer;
+            z-index: 10; /* Ensure it's above the canvas */
+            transition: opacity 0.3s ease-in-out;
+        }
+        #touchToStartOverlay.hidden {
+            opacity: 0;
+            pointer-events: none; /* Disable interaction when hidden */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+    <div id="app-container" class="flex flex-col items-center justify-center min-h-screen p-4">
+        <h1 class="text-4xl font-bold mb-8 text-shadow-lg">Breathing Exercise</h1>
+
+        <div class="bg-white bg-opacity-10 p-8 rounded-2xl shadow-xl max-w-4xl w-full flex flex-col items-center">
+            <div id="canvasContainer" class="relative w-full mb-8">
+                <canvas id="breathingCanvas" class="w-full h-full"></canvas>
+                <div id="touchToStartOverlay" class="absolute inset-0 flex items-center justify-center text-center text-4xl font-bold rounded-2xl">
+                    Touch to Start
+                </div>
+            </div>
+
+            <div id="phaseDisplay" class="text-3xl font-semibold mb-6 text-yellow-300">Inhale</div>
+
+            <div class="flex flex-col md:flex-row items-center justify-center w-full mb-8 space-y-4 md:space-y-0 md:space-x-8">
+                <div class="flex items-center space-x-4">
+                    <label for="breathingSpeed" class="text-lg font-medium">Breathing Speed:</label>
+                    <input type="range" id="breathingSpeed" min="7" max="13" value="10" step="0.5"
+                           class="w-48 md:w-64 h-2 bg-blue-700 rounded-lg appearance-none cursor-pointer range-lg">
+                    <span id="speedValue" class="text-lg font-bold text-blue-300">10.0s</span>
+                </div>
+
+                <div class="flex space-x-4">
+                    <button id="startButton"
+                            class="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50">
+                        Start
+                    </button>
+                    <button id="stopButton"
+                            class="px-8 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-red-500 focus:ring-opacity-50">
+                        Stop
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Get canvas and context
+        const canvas = document.getElementById('breathingCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Get UI elements
+        const phaseDisplay = document.getElementById('phaseDisplay');
+        const breathingSpeedInput = document.getElementById('breathingSpeed');
+        const speedValueSpan = document.getElementById('speedValue');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const touchToStartOverlay = document.getElementById('touchToStartOverlay');
+        const canvasContainer = document.getElementById('canvasContainer'); // Get the container for correct overlay positioning
+
+        // Animation variables
+        let animationFrameId; // Stores the ID of the current animation frame
+        let isRunning = false; // Flag to check if the exercise is running
+        let breathingCycleDuration = parseFloat(breathingSpeedInput.value);
+        let animationStartTime = 0; // Timestamp when the animation started (or resumed)
+        const fixedDotX = 0.25; // Fixed X position for the dot (0.25 means 25% from the left edge of the canvas width)
+
+        // Function to set canvas dimensions based on its display size
+        function setCanvasDimensions() {
+            // Get the computed style of the canvas container element
+            const rect = canvasContainer.getBoundingClientRect();
+            // Set the canvas's internal width and height to match its display size
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            // Redraw the initial state after resize
+            if (!isRunning) {
+                drawInitialStaticState();
+            }
+        }
+
+        // Call setCanvasDimensions initially and on window resize
+        window.addEventListener('load', setCanvasDimensions);
+        window.addEventListener('resize', setCanvasDimensions);
+
+        // Function to draw the initial static state (when not running)
+        function drawInitialStaticState() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear before drawing
+
+            // Initial state for dot and circle (at lowest point, min radius, ready to inhale)
+            const initialProgressAngle = 0; // Represents the start of the cycle
+            const initialDotAngle = initialProgressAngle + (3 * Math.PI / 2); // Corresponds to lowest point
+            const initialPhaseShift = initialDotAngle - (fixedDotX * 2 * Math.PI);
+
+            // Calculate the amplitude and vertical offset for the sine wave
+            const amplitude = canvas.height / 4; // Controls the height of the wave
+            const centerY = canvas.height / 2; // Vertical center of the canvas
+
+            // Draw an initial static wave
+            ctx.strokeStyle = 'rgba(110, 231, 183, 0.7)'; // Green for initial inhale state
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(0, centerY - amplitude * Math.sin(0 + initialPhaseShift));
+            for (let x = 0; x <= canvas.width; x++) {
+                const angle = (x / canvas.width) * 2 * Math.PI + initialPhaseShift;
+                const y = centerY - amplitude * Math.sin(angle);
+                ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Draw the initial vertical line and dot
+            const initialDotCanvasX = fixedDotX * canvas.width;
+            const initialDotY = centerY - amplitude * Math.sin(initialDotAngle); // Y for the initial dot position
+            ctx.beginPath();
+            ctx.moveTo(initialDotCanvasX, 0);
+            ctx.lineTo(initialDotCanvasX, canvas.height);
+            ctx.strokeStyle = 'rgba(110, 231, 183, 0.7)'; // Green for initial line
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(initialDotCanvasX, initialDotY, 8, 0, Math.PI * 2);
+            ctx.fillStyle = '#FCD34D';
+            ctx.fill();
+
+            // Draw the initial static circle on the right side
+            const circleX = canvas.width * 0.75;
+            const circleY = canvas.height / 2;
+            const minRadius = canvas.height / 8; // Use min radius for static state
+            ctx.beginPath();
+            ctx.arc(circleX, circleY, minRadius, 0, Math.PI * 2); // Start at min radius
+            ctx.fillStyle = 'rgba(110, 231, 183, 0.7)'; // Green for initial circle
+            ctx.fill();
+            ctx.strokeStyle = '#FCD34D'; // Yellow border for the circle
+            ctx.lineWidth = 3;
+            ctx.stroke();
+        }
+
+
+        // Function to draw the sinusoid wave, the fixed dot with vertical line, and the inflating/deflating circle
+        function drawSineWave(timestamp) {
+            // Clear the canvas for redrawing
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Set line properties for the wave
+            ctx.lineWidth = 4; // Thickness of the line
+
+            // Calculate the amplitude and vertical offset for the sine wave
+            const amplitude = canvas.height / 4; // Controls the height of the wave
+            const centerY = canvas.height / 2; // Vertical center of the canvas
+
+            // Calculate time elapsed within the current breathing cycle
+            const elapsedTimeInCycle = ((timestamp - animationStartTime) / 1000) % breathingCycleDuration;
+
+            // Calculate the current angle for the dot's position and circle's size
+            // This angle starts at 3*PI/2 (lowest point) when elapsedTimeInCycle is 0
+            const currentProgressAngle = (elapsedTimeInCycle / breathingCycleDuration) * 2 * Math.PI;
+            const dotAngle = currentProgressAngle + (3 * Math.PI / 2);
+
+            // Calculate the dot's Y position on the sine wave
+            const dotY = centerY - amplitude * Math.sin(dotAngle);
+
+            // Calculate the phase shift for the sine wave to make it move right to left
+            // The wave's angle at fixedDotX should correspond to dotAngle
+            // So, (fixedDotX * 2 * Math.PI) + phaseShift = dotAngle
+            // phaseShift = dotAngle - (fixedDotX * 2 * Math.PI)
+            const phaseShift = dotAngle - (fixedDotX * 2 * Math.PI);
+
+            // Determine the current phase (Inhale/Exhale) based on the dot's vertical movement
+            // Normalize dotAngle to be within 0 to 2*PI for consistent phase checking
+            const normalizedDotAngle = (dotAngle % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+
+            let currentVisualColor; // Color for wave, line, and circle fill
+            let currentPhaseText;
+            let currentPhaseTextColor;
+
+            // Inhale phase: dot moves upwards (sin increases), circle grows
+            // This occurs when cos(normalizedDotAngle) is positive.
+            // In normalized angle (0 to 2PI), this is (3*PI/2, 2*PI] and [0, PI/2).
+            if (normalizedDotAngle > (3 * Math.PI / 2) || normalizedDotAngle < (Math.PI / 2)) {
+                currentVisualColor = 'rgba(110, 231, 183, 0.7)'; // Green for inhale (semi-transparent)
+                currentPhaseText = 'Inhale';
+                currentPhaseTextColor = '#6EE7B7'; // Greenish-blue
+            } else {
+                // Exhale phase: dot moves downwards (sin decreases), circle shrinks
+                currentVisualColor = 'rgba(248, 113, 113, 0.7)'; // Red for exhale (semi-transparent)
+                currentPhaseText = 'Exhale';
+                currentPhaseTextColor = '#F87171'; // Reddish
+            }
+
+            phaseDisplay.textContent = currentPhaseText;
+            phaseDisplay.style.color = currentPhaseTextColor;
+
+            // Begin drawing the path of the sine wave
+            ctx.beginPath();
+            ctx.strokeStyle = currentVisualColor; // Apply the determined color to the wave
+            // Move to the starting point of the wave (left edge of the canvas)
+            ctx.moveTo(0, centerY - amplitude * Math.sin(0 + phaseShift));
+
+            // Draw the full sine wave across the canvas, applying the phase shift for right-to-left movement
+            for (let x = 0; x <= canvas.width; x++) {
+                // Calculate the angle for the sine function, including the phase shift
+                const angle = (x / canvas.width) * 2 * Math.PI + phaseShift;
+                // Calculate the y-coordinate for the wave
+                const y = centerY - amplitude * Math.sin(angle);
+                ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Draw the vertical line through the dot
+            const dotCanvasX = fixedDotX * canvas.width; // Fixed X position for the dot
+            ctx.beginPath();
+            ctx.moveTo(dotCanvasX, 0); // Start at the top of the canvas
+            ctx.lineTo(dotCanvasX, canvas.height); // Draw to the bottom of the canvas
+            ctx.strokeStyle = currentVisualColor; // Vertical line color matches wave color
+            ctx.lineWidth = 2; // Thin line
+            ctx.stroke();
+
+            // Draw the fixed dot
+            ctx.beginPath();
+            ctx.arc(dotCanvasX, dotY, 8, 0, Math.PI * 2); // Draw a circle with radius 8
+            ctx.fillStyle = '#FCD34D'; // Yellow color for the dot
+            ctx.fill(); // Fill the dot
+
+
+            // Draw the inflating/deflating circle on the right side
+            const circleX = canvas.width * 0.75; // Moved to 75% from the left
+            const circleY = canvas.height / 2;
+            const minRadius = canvas.height / 8;
+            const maxRadius = canvas.height / 4;
+
+            // Calculate current radius based on the currentProgressAngle
+            // Using 0.5 * (1 + Math.sin(dotAngle)) will give 0 at 3PI/2 (min radius) and 1 at PI/2 (max radius).
+            const currentRadius = minRadius + (maxRadius - minRadius) * (0.5 * (1 + Math.sin(dotAngle)));
+
+            ctx.beginPath();
+            ctx.arc(circleX, circleY, currentRadius, 0, Math.PI * 2);
+            ctx.fillStyle = currentVisualColor; // Circle color matches the wave/line color (now semi-transparent)
+            ctx.fill();
+            ctx.strokeStyle = '#FCD34D'; // Yellow border for the circle
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+
+            // Request the next animation frame if the exercise is running
+            if (isRunning) {
+                animationFrameId = requestAnimationFrame(drawSineWave);
+            }
+        }
+
+        // Function to start the breathing exercise
+        function startBreathing() {
+            if (!isRunning) {
+                isRunning = true;
+                animationStartTime = performance.now(); // Get current high-resolution timestamp
+                // Start the animation loop
+                animationFrameId = requestAnimationFrame(drawSineWave);
+                // Hide the "Touch to Start" overlay
+                touchToStartOverlay.classList.add('hidden');
+                // Disable start button, enable stop button
+                startButton.disabled = true;
+                startButton.classList.add('opacity-50', 'cursor-not-allowed');
+                stopButton.disabled = false;
+                stopButton.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        // Function to stop the breathing exercise
+        function stopBreathing() {
+            if (isRunning) {
+                isRunning = false;
+                cancelAnimationFrame(animationFrameId); // Stop the animation loop
+                // Show the "Touch to Start" overlay
+                touchToStartOverlay.classList.remove('hidden');
+                // Enable start button, disable stop button
+                startButton.disabled = false;
+                startButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                stopButton.disabled = true;
+                stopButton.classList.add('opacity-50', 'cursor-not-allowed');
+                // Reset display
+                phaseDisplay.textContent = 'Ready';
+                phaseDisplay.style.color = '#FCD34D'; // Yellow
+                // Clear canvas and draw initial static wave
+                drawInitialStaticState(); // Re-run the initial setup to draw static wave
+            }
+        }
+
+        // Event listener for breathing speed input
+        breathingSpeedInput.addEventListener('input', (event) => {
+            breathingCycleDuration = parseFloat(event.target.value);
+            speedValueSpan.textContent = `${breathingCycleDuration.toFixed(1)}s`;
+            // If running, reset start time to smoothly adjust to new speed
+            if (isRunning) {
+                animationStartTime = performance.now(); // Reset animation start time to restart cycle smoothly
+            }
+        });
+
+        // Event listeners for start and stop buttons
+        startButton.addEventListener('click', startBreathing);
+        stopButton.addEventListener('click', stopBreathing);
+
+        // Event listener for the touch-to-start overlay
+        touchToStartOverlay.addEventListener('click', startBreathing);
+        touchToStartOverlay.addEventListener('touchstart', startBreathing); // For touch devices
+
+        // Initial setup: Draw the static wave and disable stop button
+        window.onload = function() {
+            setCanvasDimensions(); // Set initial canvas dimensions
+            drawInitialStaticState(); // Draw the initial static state
+
+            stopButton.disabled = true; // Initially disable stop button
+            stopButton.classList.add('opacity-50', 'cursor-not-allowed');
+            phaseDisplay.textContent = 'Ready to Inhale'; // More descriptive initial text
+            phaseDisplay.style.color = '#6EE7B7'; // Green for initial phase text
+            speedValueSpan.textContent = `${breathingCycleDuration.toFixed(1)}s`; // Set initial speed display
+        };
+    </script>
+</body>
+</html>
